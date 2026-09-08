@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mailease - Email Assistant</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; background-color: #f4f4f9; }
+        h1 { color: #333; }
+        .button { background-color: #4CAF50; color: white; padding: 15px 32px; border: none; cursor: pointer; }
+        .button:hover { background-color: #45a049; }
+        .container { max-width: 600px; margin: 0 auto; background-color: white; padding: 20px; border-radius: 8px; box-shadow: 0px 0px 10px rgba(0, 0, 0, 0.1); }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Welcome to Mailease</h1>
+        <p>Fetch emails, categorize them, and generate replies on demand.</p>
+        
+        <form method="POST" action="/fetch_emails">
+            <button type="submit" class="button">Fetch Latest 100 Emails</button>
+        </form>
+
+        <hr>
+
+        <form method="POST" action="/generate_reply">
+            <label for="email_body">Email Body (for reply generation):</label>
+            <textarea id="email_body" name="email_body" rows="4" style="width:100%" placeholder="Paste email content here"></textarea>
+            <br><br>
+            <button type="submit" class="button">Generate Formal Reply</button>
+        </form>
+    </div>
+</body>
+</html>

@@ -1,0 +1,12 @@
+Flask  # If using Flask
+fastapi  # If using FastAPI
+uvicorn  # If using FastAPI
+imap-tools
+python-dateutil
+spacy
+scikit-learn
+transformers
+openai
+google-api-python-client
+google-auth-httplib2
+google-auth-oauthlib

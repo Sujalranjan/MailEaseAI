@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>{{ priority }} Priority Emails - Mailease</title>
+    <style>
+        body { font-family: Arial; margin: 20px; }
+        .email {
+            border: 1px solid #ddd;
+            padding: 10px;
+            margin-bottom: 15px;
+            border-radius: 5px;
+        }
+        .email h3 {
+            margin: 0;
+        }
+        .email .from {
+            color: gray;
+        }
+    </style>
+</head>
+<body>
+    <h1>{{ priority }} Priority Emails</h1>
+    {% if emails %}
+        {% for email in emails %}
+            <div class="email">
+                <h3>{{ email.subject }}</h3>
+                <p class="from">{{ email.from }}</p>
+                <p>{{ email.body[:300] }}{% if email.body|length > 300 %}...{% endif %}</p>
+                {% if email.deadlines %}
+                    <p><strong>Deadlines:</strong> {{ email.deadlines|join(", ") }}</p>
+                {% endif %}
+            </div>
+        {% endfor %}
+    {% else %}
+        <p>No emails found in this category.</p>
+    {% endif %}
+</body>
+</html>

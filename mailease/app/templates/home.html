@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Mailease - Dashboard</title>
+    <style>
+        .circle-container {
+            display: flex;
+            justify-content: center;
+            margin-top: 100px;
+        }
+
+        .circle {
+            width: 150px;
+            height: 150px;
+            border-radius: 50%;
+            margin: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 20px;
+            text-decoration: none;
+            box-shadow: 0 0 10px rgba(0,0,0,0.2);
+            transition: transform 0.2s;
+        }
+
+        .circle:hover {
+            transform: scale(1.1);
+        }
+
+        .high { background-color: #d9534f; }
+        .medium { background-color: #f0ad4e; }
+        .low { background-color: #5cb85c; }
+    </style>
+</head>
+<body>
+    <h1 style="text-align:center;">📬 Mailease</h1>
+    <div class="circle-container">
+        <a href="/emails/high" class="circle high">High</a>
+        <a href="/emails/medium" class="circle medium">Medium</a>
+        <a href="/emails/low" class="circle low">Low</a>
+    </div>
+</body>
+</html>
