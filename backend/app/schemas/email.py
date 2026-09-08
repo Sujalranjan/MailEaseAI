@@ -3,6 +3,8 @@ from enum import Enum
 
 from pydantic import BaseModel
 
+from app.schemas.task import TaskOut
+
 
 class UrgencyLevel(str, Enum):
     """Rule-based urgency tag.
@@ -34,7 +36,6 @@ class EmailMessage(BaseModel):
     received_at: datetime | None = None
     body: str
     category: UrgencyLevel
-    deadlines: list[str] = []
 
 
 class EmailOut(BaseModel):
@@ -58,6 +59,7 @@ class EmailOut(BaseModel):
     category: str | None
     organization: str | None
     processing_status: str
+    tasks: list[TaskOut] = []
 
 
 class EmailThreadOut(BaseModel):

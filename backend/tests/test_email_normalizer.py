@@ -1,11 +1,6 @@
 from datetime import timezone
 
-from app.services.email_normalizer import (
-    categorize_email,
-    extract_deadlines,
-    get_email_body,
-    normalize_message,
-)
+from app.services.email_normalizer import categorize_email, get_email_body, normalize_message
 
 
 class TestCategorizeEmail:
@@ -20,21 +15,6 @@ class TestCategorizeEmail:
 
     def test_case_insensitive(self):
         assert categorize_email("Deadline Approaching", "") == "High"
-
-
-class TestExtractDeadlines:
-    def test_finds_slash_date(self):
-        assert extract_deadlines("Please submit by 15/09/2026.") == ["15/09/2026"]
-
-    def test_finds_iso_date(self):
-        assert extract_deadlines("Due 2026-09-15 at noon.") == ["2026-09-15"]
-
-    def test_no_date_returns_empty(self):
-        assert extract_deadlines("Please submit by Friday.") == []
-
-    def test_multiple_dates(self):
-        result = extract_deadlines("First draft 01/09/2026, final 15/09/2026.")
-        assert result == ["01/09/2026", "15/09/2026"]
 
 
 class TestGetEmailBody:
@@ -161,11 +141,10 @@ class TestNormalizeMessage:
         result = normalize_message(raw)
         assert result.message_id is None
 
-    def test_urgency_and_deadlines_still_computed(self):
+    def test_urgency_still_computed(self):
         raw = (
             b"From: a@example.com\nSubject: URGENT\n"
             b"Content-Type: text/plain\n\nSubmit by 15/09/2026"
         )
         result = normalize_message(raw)
         assert result.category == "High"
-        assert result.deadlines == ["15/09/2026"]

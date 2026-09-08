@@ -1,8 +1,9 @@
-"""Orchestrates: provider fetch -> normalize -> dedupe -> persist -> thread -> read back.
+"""Orchestrates: provider fetch -> normalize -> dedupe -> persist -> thread -> extract tasks -> read back.
 
 Keeps app/integrations/* (provider connectivity), app/services/
 email_normalizer.py (raw bytes -> structured data), app/services/
-email_threading_service.py (conversation grouping), and
+email_threading_service.py (conversation grouping), app/services/
+task_extraction_service.py (actionable-task extraction), and
 app/repositories/* (persistence) each responsible for one concern, per
 the requirement not to put database or provider logic directly in the
 other layers or in API routes.
@@ -19,6 +20,7 @@ from app.repositories.account_repository import get_or_create_default_account
 from app.repositories.email_repository import create, get_by_provider_message_id, list_by_account
 from app.services.email_normalizer import normalize_message
 from app.services.email_threading_service import assign_thread
+from app.services.task_extraction_service import extract_and_persist_tasks
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +43,11 @@ def sync_emails(db: Session, settings: Settings) -> list[Email]:
     re-processed on a later sync call, and its thread_id is only ever
     revisited by an explicit evidence-based merge triggered by a later
     email in the same conversation.
+
+    Task extraction (task_extraction_service.extract_and_persist_tasks)
+    likewise runs once per newly-inserted email in this same transaction,
+    and never raises — an extraction failure for one email is logged and
+    treated as zero tasks found, never allowed to abort the batch.
     """
     account = get_or_create_default_account(db, settings)
     provider = IMAPProvider(settings)
@@ -70,6 +77,7 @@ def sync_emails(db: Session, settings: Settings) -> list[Email]:
 
         row = create(db, account.id, parsed)
         assign_thread(db, account.id, row)
+        extract_and_persist_tasks(db, row)
         new_count += 1
 
     if result.new_cursor is not None:

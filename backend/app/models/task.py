@@ -10,10 +10,18 @@ from app.models.mixins import TimestampMixin
 class Task(Base, TimestampMixin):
     """An actionable item extracted from an email.
 
-    Not yet populated automatically — real task/deadline extraction
-    (turning "please submit the report by Friday" into a structured
-    Task) is a later phase. The schema exists now so that phase is
-    purely a service that inserts rows, not a migration.
+    Populated by services/task_extraction_service.py, backed by
+    RuleBasedTaskExtractor (deterministic keyword/regex heuristics — see
+    services/task_extractor_rule_based.py). `priority` is inherited from
+    the source email's existing rule-based `urgency` rather than a new
+    heuristic, since that's already computed for every email.
+
+    `deadline_confidence` distinguishes "a date phrase was found and
+    unambiguously resolved" (confirmed) from "a date-shaped phrase was
+    found but couldn't be safely resolved" (ambiguous, e.g. 05/06/2026)
+    from "no date phrase was found at all" (NULL) — deliberately a small
+    categorical label, not a fabricated numeric confidence score, since
+    a rule-based system has no real probability to report.
     """
 
     __tablename__ = "tasks"
@@ -24,6 +32,7 @@ class Task(Base, TimestampMixin):
     title: Mapped[str] = mapped_column(String(500))
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     deadline: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True, nullable=True)
+    deadline_confidence: Mapped[str | None] = mapped_column(String(20), nullable=True)
     priority: Mapped[str | None] = mapped_column(String(20), nullable=True)
     status: Mapped[str] = mapped_column(String(20), default="pending", index=True)
 

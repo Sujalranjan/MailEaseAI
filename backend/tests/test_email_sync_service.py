@@ -2,7 +2,7 @@ from unittest.mock import MagicMock, patch
 
 from app.config import Settings
 from app.integrations.base import FetchResult, RawEmail
-from app.models import Email, EmailAccount
+from app.models import Email, EmailAccount, Task
 from app.services.email_sync_service import sync_emails
 
 
@@ -10,8 +10,9 @@ def make_settings():
     return Settings(email_address="me@gmail.com", email_app_password="secret")
 
 
-def raw_message(message_id="<1@example.com>", subject="Test", urgent=False, in_reply_to=None):
-    body = "Submit ASAP" if urgent else "Just an update"
+def raw_message(message_id="<1@example.com>", subject="Test", urgent=False, in_reply_to=None, body=None):
+    if body is None:
+        body = "Submit ASAP" if urgent else "Just an update"
     msg_id_line = f"Message-ID: {message_id}\n" if message_id else ""
     reply_line = f"In-Reply-To: {in_reply_to}\n" if in_reply_to else ""
     return (
@@ -144,6 +145,45 @@ class TestSyncEmails:
         root_thread_id = next(e.thread_id for e in first if e.provider_message_id == "<root3@example.com>")
         reply_thread_id = next(e.thread_id for e in second if e.provider_message_id == "<reply3@example.com>")
         assert root_thread_id == reply_thread_id
+
+    def test_sync_extracts_and_persists_tasks_from_new_emails(self, db_session):
+        result = FetchResult(
+            messages=[
+                RawEmail(
+                    "1",
+                    raw_message("<task1@example.com>", body="Please submit the report by Friday."),
+                )
+            ],
+            new_cursor="1000:1",
+        )
+        with patch_provider(result):
+            emails = sync_emails(db_session, make_settings())
+
+        assert db_session.query(Task).count() == 1
+        task = db_session.query(Task).one()
+        assert task.email_id == emails[0].id
+
+    def test_repeated_sync_does_not_duplicate_tasks(self, db_session):
+        result = FetchResult(
+            messages=[RawEmail("1", raw_message("<task2@example.com>", body="Please submit the report by Friday."))],
+            new_cursor="1000:1",
+        )
+        with patch_provider(result):
+            sync_emails(db_session, make_settings())
+        with patch_provider(result):
+            sync_emails(db_session, make_settings())
+
+        assert db_session.query(Task).count() == 1
+
+    def test_email_with_no_actionable_content_creates_no_task(self, db_session):
+        result = FetchResult(
+            messages=[RawEmail("1", raw_message("<task3@example.com>", body="Just an update, nothing needed."))],
+            new_cursor="1000:1",
+        )
+        with patch_provider(result):
+            sync_emails(db_session, make_settings())
+
+        assert db_session.query(Task).count() == 0
 
     def test_bootstrap_account_reused_across_calls(self, db_session):
         result = FetchResult(messages=[RawEmail("1", raw_message("<1@example.com>"))], new_cursor="1000:1")

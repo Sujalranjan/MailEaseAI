@@ -5,10 +5,17 @@ Kept separate from app/integrations/*  (which only knows how to talk to
 a specific provider) and from persistence (app/repositories/*) — this
 module's only job is: raw bytes in, structured+normalized data out.
 
-Categorization and deadline extraction here are intentionally simple
-keyword/regex heuristics, not AI. Replacing them with a real LLM-backed
-pipeline is a later phase — this phase only needs a correct, testable
-normalization path.
+Categorization here is an intentionally simple keyword heuristic, not AI.
+Replacing it with a real LLM-backed pipeline is a later phase — this
+phase only needs a correct, testable normalization path.
+
+Note: the original Phase 1 deadline-extraction regex that used to live
+here (a crude "find date-shaped substrings" pass over the raw body,
+exposed as EmailMessage.deadlines) was removed in Phase 5. It was never
+persisted or consumed by anything downstream — a dead, superseded
+feature once Phase 5's real, tested, timestamp-anchored deadline
+resolution (services/task_extractor_rule_based.py) exists and actually
+writes structured Task rows.
 """
 
 import logging
@@ -24,10 +31,6 @@ from bs4 import BeautifulSoup
 from app.schemas.email import EmailMessage, UrgencyLevel
 
 logger = logging.getLogger(__name__)
-
-_ABSOLUTE_DATE_PATTERN = re.compile(
-    r"\b(?:\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|\d{4}[/-]\d{1,2}[/-]\d{1,2})\b"
-)
 
 _HIGH_PRIORITY_KEYWORDS = (
     "urgent",
@@ -120,17 +123,6 @@ def categorize_email(subject: str, body: str) -> UrgencyLevel:
     return UrgencyLevel.low
 
 
-def extract_deadlines(body: str) -> list[str]:
-    """Find absolute date-like substrings.
-
-    Deliberately limited to absolute numeric dates for now. Relative
-    dates ("by Friday", "next week", "EOD") require timestamp-anchored
-    parsing and are planned for a dedicated deadline-extraction phase
-    rather than being bolted on here.
-    """
-    return _ABSOLUTE_DATE_PATTERN.findall(body)
-
-
 def _parse_received_at(raw_date: str | None):
     """Parse the Date header to a UTC-normalized datetime.
 
@@ -192,5 +184,4 @@ def normalize_message(raw_bytes: bytes) -> EmailMessage:
         received_at=_parse_received_at(msg.get("Date")),
         body=body,
         category=categorize_email(subject, body),
-        deadlines=extract_deadlines(body),
     )

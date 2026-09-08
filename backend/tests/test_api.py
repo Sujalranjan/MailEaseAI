@@ -16,11 +16,11 @@ def make_client(settings: Settings, db_session=None) -> TestClient:
     return TestClient(app)
 
 
-def raw_message(message_id="<api-test@example.com>", subject="Test", in_reply_to=None):
+def raw_message(message_id="<api-test@example.com>", subject="Test", in_reply_to=None, body="Hello"):
     reply_line = f"In-Reply-To: {in_reply_to}\n" if in_reply_to else ""
     return (
         f"From: a@b.com\nTo: a@b.com\nSubject: {subject}\nMessage-ID: {message_id}\n{reply_line}"
-        f"Date: Mon, 1 Sep 2026 00:00:00 +0000\nContent-Type: text/plain\n\nHello"
+        f"Date: Mon, 1 Sep 2026 00:00:00 +0000\nContent-Type: text/plain\n\n{body}"
     ).encode()
 
 
@@ -130,3 +130,75 @@ def test_get_thread_returns_thread_with_its_emails(db_session):
         "<thread-root@example.com>",
         "<thread-reply@example.com>",
     }
+
+
+def test_list_tasks_returns_empty_before_any_sync(db_session):
+    client = make_client(Settings(email_address="a@b.com", email_app_password="x"), db_session)
+    response = client.get("/tasks/")
+    assert response.status_code == 200
+    assert response.json() == []
+
+
+def test_list_tasks_returns_503_when_unconfigured(db_session):
+    client = make_client(Settings(email_address=None, email_app_password=None), db_session)
+    response = client.get("/tasks/")
+    assert response.status_code == 503
+
+
+def test_sync_then_list_tasks_returns_extracted_task(db_session):
+    client = make_client(Settings(email_address="a@b.com", email_app_password="x"), db_session)
+    result = FetchResult(
+        messages=[
+            RawEmail(
+                "1", raw_message("<task-api@example.com>", body="Please submit the report by 2026-09-20.")
+            )
+        ],
+        new_cursor="1000:1",
+    )
+    with patch_provider(result):
+        emails_response = client.get("/emails/")
+
+    tasks_response = client.get("/tasks/")
+    assert tasks_response.status_code == 200
+    tasks_body = tasks_response.json()
+    assert len(tasks_body) == 1
+    assert tasks_body[0]["email_id"] == emails_response.json()[0]["id"]
+    assert tasks_body[0]["deadline_confidence"] == "confirmed"
+
+    # Also exposed nested under the email itself.
+    assert len(emails_response.json()[0]["tasks"]) == 1
+
+
+def test_get_task_returns_404_when_not_found(db_session):
+    client = make_client(Settings(), db_session)
+    response = client.get("/tasks/999")
+    assert response.status_code == 404
+
+
+def test_get_task_returns_task_detail(db_session):
+    client = make_client(Settings(email_address="a@b.com", email_app_password="x"), db_session)
+    result = FetchResult(
+        messages=[RawEmail("1", raw_message("<task-detail@example.com>", body="Please submit the report."))],
+        new_cursor="1000:1",
+    )
+    with patch_provider(result):
+        client.get("/emails/")
+
+    task_id = client.get("/tasks/").json()[0]["id"]
+    response = client.get(f"/tasks/{task_id}")
+    assert response.status_code == 200
+    assert response.json()["id"] == task_id
+
+
+def test_repeated_email_sync_does_not_duplicate_tasks_via_api(db_session):
+    client = make_client(Settings(email_address="a@b.com", email_app_password="x"), db_session)
+    result = FetchResult(
+        messages=[RawEmail("1", raw_message("<task-nodupe@example.com>", body="Please submit the report."))],
+        new_cursor="1000:1",
+    )
+    with patch_provider(result):
+        client.get("/emails/")
+    with patch_provider(FetchResult(messages=[], new_cursor=None)):
+        client.get("/emails/")
+
+    assert len(client.get("/tasks/").json()) == 1
