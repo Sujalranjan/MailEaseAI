@@ -4,9 +4,11 @@ from email.header import decode_header
 from bs4 import BeautifulSoup
 import re
 
-# Email credentials
-EMAIL = "sujalranjan02@gmail.com"
-APP_PASSWORD = "ouwdeblwgmkqstus"
+# Email credentials — REDACTED 2026-09-08 during security cleanup.
+# This was a real hardcoded Gmail address + App Password; rotate the
+# original App Password in the Google Account if not already done.
+EMAIL = "REDACTED_SCRUBBED_2026-09-08"
+APP_PASSWORD = "REDACTED_SCRUBBED_2026-09-08"
 
 # IMAP settings
 IMAP_SERVER = "imap.gmail.com"

@@ -32,8 +32,8 @@ async def get_emails():
     Replace with your actual email credentials and server.
     """
     mail_server = "imap.gmail.com"  # Or your email provider's server
-    email_user = "sujalranjan02@gmail.com"  # Replace with your email
-    email_pass = "@Sujal14112005"  # Replace with your password
+    email_user = "REDACTED_SCRUBBED_2026-09-08"  # was a hardcoded address; removed during security cleanup
+    email_pass = "REDACTED_SCRUBBED_2026-09-08"  # was a hardcoded password; removed during security cleanup — rotate the original credential
 
     try:
         emails = fetch_emails(mail_server, email_user, email_pass)

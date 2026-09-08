@@ -1,12 +1,9 @@
-Flask  # If using Flask
-fastapi  # If using FastAPI
-uvicorn  # If using FastAPI
-imap-tools
-python-dateutil
-spacy
-scikit-learn
-transformers
-openai
-google-api-python-client
-google-auth-httplib2
-google-auth-oauthlib
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+pydantic==2.9.2
+pydantic-settings==2.5.2
+beautifulsoup4==4.12.3
+
+# testing
+pytest==8.3.3
+httpx==0.27.2
