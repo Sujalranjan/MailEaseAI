@@ -7,10 +7,10 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     """Application configuration, loaded from environment variables / .env.
 
-    Only settings needed by the current phase (IMAP email fetch) are
-    defined here. Settings for later phases (database, Google OAuth,
-    LLM provider) will be added when those phases are implemented,
-    rather than declared unused ahead of time.
+    Only settings needed by the current phase (IMAP email fetch +
+    database persistence) are defined here. Settings for later phases
+    (Google OAuth, LLM provider) will be added when those phases are
+    implemented, rather than declared unused ahead of time.
     """
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
@@ -31,6 +31,12 @@ class Settings(BaseSettings):
     imap_server: str = "imap.gmail.com"
     imap_port: int = 993
     max_emails_per_fetch: int = 50
+
+    # Database. SQLite for local dev; the URL is the only thing that needs
+    # to change to move to PostgreSQL later (e.g.
+    # postgresql+psycopg://user:pass@host/db) since access goes through
+    # SQLAlchemy everywhere.
+    database_url: str = "sqlite:///./mailease.db"
 
     def imap_is_configured(self) -> bool:
         return bool(self.email_address and self.email_app_password)

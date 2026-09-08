@@ -141,6 +141,7 @@ def _parse_message(raw_email: bytes) -> EmailMessage:
 
     subject = _decode_subject(msg.get("Subject"))
     sender = msg.get("From")
+    recipients = msg.get("To")
     date = msg.get("Date")
     message_id = msg.get("Message-ID")
     body = get_email_body(msg)
@@ -149,6 +150,7 @@ def _parse_message(raw_email: bytes) -> EmailMessage:
         message_id=message_id,
         subject=subject,
         sender=sender,
+        recipients=recipients,
         date=date,
         body=body,
         category=categorize_email(subject, body),
