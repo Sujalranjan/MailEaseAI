@@ -27,8 +27,15 @@ class User(Base, TimestampMixin):
 class EmailAccount(Base, TimestampMixin):
     """A connected mailbox. One user can eventually connect multiple
     accounts (e.g. work + personal Gmail); today only IMAP is supported,
-    with Gmail OAuth as a planned addition (see EmailProvider abstraction
-    that will be introduced in the ingestion-provider phase).
+    with Gmail API as a planned addition behind the same EmailProvider
+    interface (see app/integrations/base.py).
+
+    `sync_cursor` is a deliberately opaque, provider-defined string used
+    to resume incremental sync (see app/integrations/imap_provider.py for
+    what IMAP packs into it). Keeping it opaque here — rather than typed
+    IMAP-specific columns like "last_uid" — is what lets a future Gmail
+    provider (which would use a historyId, not a UID) reuse this same
+    column without a schema change.
     """
 
     __tablename__ = "email_accounts"
@@ -38,6 +45,7 @@ class EmailAccount(Base, TimestampMixin):
     email_address: Mapped[str] = mapped_column(String(320), unique=True, index=True)
     provider: Mapped[str] = mapped_column(String(20), default="imap")
     imap_server: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    sync_cursor: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     user: Mapped["User"] = relationship(back_populates="email_accounts")
     threads: Mapped[list["EmailThread"]] = relationship(

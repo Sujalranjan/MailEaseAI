@@ -47,6 +47,11 @@ def run_migrations_offline() -> None:
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
+        # SQLite doesn't support most ALTER TABLE operations (add/drop
+        # column, add constraint) directly — Alembic works around this by
+        # recreating the table under the hood when batch mode is on. Safe
+        # to leave enabled for Postgres too; it's a no-op there.
+        render_as_batch=True,
     )
 
     with context.begin_transaction():
@@ -68,7 +73,9 @@ def run_migrations_online() -> None:
 
     with connectable.connect() as connection:
         context.configure(
-            connection=connection, target_metadata=target_metadata
+            connection=connection,
+            target_metadata=target_metadata,
+            render_as_batch=True,
         )
 
         with context.begin_transaction():

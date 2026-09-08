@@ -1,27 +1,26 @@
-"""IMAP email ingestion and rule-based triage.
+"""Turns raw RFC822 bytes (from any EmailProvider) into a normalized,
+provider-agnostic EmailMessage.
 
-Ported and corrected from the two divergent prototype implementations
-found in legacy/backend-fastapi-broken/email_utils.py and
-legacy/mailease-flask/app/email_utils.py, consolidated into one
-implementation with a fixed MIME-walking bug (see get_email_body) and
-a single categorization keyword list (the two legacy versions disagreed).
+Kept separate from app/integrations/*  (which only knows how to talk to
+a specific provider) and from persistence (app/repositories/*) — this
+module's only job is: raw bytes in, structured+normalized data out.
 
 Categorization and deadline extraction here are intentionally simple
 keyword/regex heuristics, not AI. Replacing them with a real LLM-backed
 pipeline is a later phase — this phase only needs a correct, testable
-ingestion path.
+normalization path.
 """
 
-import email
-import imaplib
 import logging
 import re
+from datetime import timezone
+from email import message_from_bytes
 from email.header import decode_header
 from email.message import Message
+from email.utils import getaddresses, parseaddr, parsedate_to_datetime
 
 from bs4 import BeautifulSoup
 
-from app.config import Settings
 from app.schemas.email import EmailMessage, UrgencyLevel
 
 logger = logging.getLogger(__name__)
@@ -52,10 +51,6 @@ _MEDIUM_PRIORITY_KEYWORDS = (
 )
 
 
-class EmailFetchError(RuntimeError):
-    """Raised when IMAP login/fetch fails. Never includes credentials."""
-
-
 def _clean_whitespace(text: str) -> str:
     return re.sub(r"[\r\t]+", " ", text).strip()
 
@@ -76,9 +71,9 @@ def _decode_subject(raw_subject: str | None) -> str:
 def get_email_body(msg: Message) -> str:
     """Extract readable text from a possibly-multipart email message.
 
-    Walks every MIME part (fixing the legacy bug where only the first
-    part of a multipart message was inspected, which broke on
-    multipart/mixed messages with an attachment listed first). Prefers
+    Walks every MIME part, including nested ones (Message.walk() is a
+    full preorder traversal, so multipart/alternative nested inside
+    multipart/mixed is handled without special-casing). Prefers
     text/plain; falls back to HTML with tags stripped.
     """
     plain_text: str | None = None
@@ -136,66 +131,66 @@ def extract_deadlines(body: str) -> list[str]:
     return _ABSOLUTE_DATE_PATTERN.findall(body)
 
 
-def _parse_message(raw_email: bytes) -> EmailMessage:
-    msg = email.message_from_bytes(raw_email)
+def _parse_received_at(raw_date: str | None):
+    """Parse the Date header to a UTC-normalized datetime.
+
+    SQLite (unlike Postgres) drops timezone info on any datetime it
+    stores — confirmed by a round-trip check — so two emails sent at the
+    same instant from different sender timezones would otherwise be
+    stored as different, incomparable naive values. Converting to UTC
+    here, at the normalization boundary, means every downstream
+    consumer can treat `received_at` as naive-UTC and get correct
+    ordering regardless of sender timezone.
+    """
+    if not raw_date:
+        return None
+    try:
+        parsed = parsedate_to_datetime(raw_date)
+    except (TypeError, ValueError):
+        return None
+    if parsed.tzinfo is None:
+        # Some malformed/legacy Date headers omit a timezone; treat as
+        # UTC rather than silently dropping the timestamp.
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _normalize_sender(raw_from: str | None) -> tuple[str | None, str | None]:
+    if not raw_from:
+        return None, None
+    name, addr = parseaddr(raw_from)
+    return (name or None), (addr or None)
+
+
+def _normalize_recipients(msg: Message) -> list[str]:
+    header_values = msg.get_all("To", []) + msg.get_all("Cc", [])
+    addresses = getaddresses(header_values)
+    return [addr for _, addr in addresses if addr]
+
+
+def normalize_message(raw_bytes: bytes) -> EmailMessage:
+    """Parse raw RFC822 bytes into a normalized EmailMessage.
+
+    Raises on genuinely unparseable input; callers (email_sync_service)
+    are responsible for catching that per-message so one malformed email
+    doesn't abort an entire sync batch.
+    """
+    msg = message_from_bytes(raw_bytes)
 
     subject = _decode_subject(msg.get("Subject"))
-    sender = msg.get("From")
-    recipients = msg.get("To")
-    date = msg.get("Date")
-    message_id = msg.get("Message-ID")
+    sender_name, sender_email = _normalize_sender(msg.get("From"))
     body = get_email_body(msg)
 
     return EmailMessage(
-        message_id=message_id,
+        message_id=msg.get("Message-ID"),
         subject=subject,
-        sender=sender,
-        recipients=recipients,
-        date=date,
+        sender_name=sender_name,
+        sender_email=sender_email,
+        recipients=_normalize_recipients(msg),
+        in_reply_to=msg.get("In-Reply-To"),
+        references_header=msg.get("References"),
+        received_at=_parse_received_at(msg.get("Date")),
         body=body,
         category=categorize_email(subject, body),
         deadlines=extract_deadlines(body),
     )
-
-
-def fetch_emails(settings: Settings, mailbox: str = "INBOX") -> list[EmailMessage]:
-    """Log into IMAP and return the most recent emails as EmailMessage objects.
-
-    Raises EmailFetchError on any IMAP failure. Never logs the password;
-    logs the configured address only at debug level.
-    """
-    if not settings.imap_is_configured():
-        raise EmailFetchError("Email account is not configured (missing address/app password).")
-
-    mail: imaplib.IMAP4_SSL | None = None
-    try:
-        mail = imaplib.IMAP4_SSL(settings.imap_server, settings.imap_port)
-        mail.login(settings.email_address, settings.email_app_password)
-        mail.select(mailbox)
-
-        status, data = mail.search(None, "ALL")
-        if status != "OK":
-            raise EmailFetchError(f"IMAP search failed with status: {status}")
-
-        message_ids = data[0].split()
-        message_ids = message_ids[-settings.max_emails_per_fetch :]
-
-        emails: list[EmailMessage] = []
-        for message_id in message_ids:
-            status, msg_data = mail.fetch(message_id, "(RFC822)")
-            if status != "OK" or not msg_data or not msg_data[0]:
-                continue
-            raw_email = msg_data[0][1]
-            emails.append(_parse_message(raw_email))
-
-        return emails
-
-    except imaplib.IMAP4.error as exc:
-        logger.warning("IMAP error while fetching from %s", settings.imap_server)
-        raise EmailFetchError("IMAP login or fetch failed. Check credentials and server settings.") from exc
-    finally:
-        if mail is not None:
-            try:
-                mail.logout()
-            except Exception:
-                pass

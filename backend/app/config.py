@@ -30,7 +30,11 @@ class Settings(BaseSettings):
     email_app_password: str | None = None
     imap_server: str = "imap.gmail.com"
     imap_port: int = 993
-    max_emails_per_fetch: int = 50
+    # Max messages fetched in a single sync call — both for the first-ever
+    # sync (oldest mail beyond this cap is intentionally not backfilled)
+    # and as a per-call cap during incremental sync (a mailbox with more
+    # than this many new messages catches up over several calls).
+    sync_batch_size: int = 50
 
     # Database. SQLite for local dev; the URL is the only thing that needs
     # to change to move to PostgreSQL later (e.g.

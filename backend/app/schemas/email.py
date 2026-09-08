@@ -19,15 +19,19 @@ class UrgencyLevel(str, Enum):
 
 
 class EmailMessage(BaseModel):
-    """Shape returned by the IMAP fetch layer — a freshly parsed,
-    not-yet-persisted message. See EmailOut for the persisted/API shape.
+    """Shape produced by normalization — a freshly parsed, not-yet-persisted
+    message with normalized (not raw-header) sender/recipients. See EmailOut
+    for the persisted/API shape.
     """
 
     message_id: str | None = None
     subject: str
-    sender: str | None = None
-    recipients: str | None = None
-    date: str | None = None
+    sender_name: str | None = None
+    sender_email: str | None = None
+    recipients: list[str] = []
+    in_reply_to: str | None = None
+    references_header: str | None = None
+    received_at: datetime | None = None
     body: str
     category: UrgencyLevel
     deadlines: list[str] = []
@@ -40,8 +44,11 @@ class EmailOut(BaseModel):
 
     id: int
     provider_message_id: str
-    sender: str | None
+    sender_name: str | None
+    sender_email: str | None
     recipients: str | None
+    in_reply_to: str | None
+    references_header: str | None
     subject: str
     body: str
     received_at: datetime | None

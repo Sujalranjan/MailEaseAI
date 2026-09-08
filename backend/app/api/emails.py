@@ -3,8 +3,8 @@ from sqlalchemy.orm import Session
 
 from app.config import Settings, get_settings
 from app.db.session import get_db
+from app.integrations.base import EmailFetchError
 from app.schemas.email import EmailOut
-from app.services.email_service import EmailFetchError
 from app.services.email_sync_service import sync_emails
 
 router = APIRouter(prefix="/emails", tags=["emails"])

@@ -1,5 +1,3 @@
-from email.utils import parsedate_to_datetime
-
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -15,28 +13,22 @@ def get_by_provider_message_id(db: Session, email_account_id: int, provider_mess
     return db.execute(stmt).scalar_one_or_none()
 
 
-def _parse_received_at(raw_date: str | None):
-    if not raw_date:
-        return None
-    try:
-        return parsedate_to_datetime(raw_date)
-    except (TypeError, ValueError):
-        return None
-
-
 def create(db: Session, email_account_id: int, parsed: EmailMessage) -> Email:
-    """Insert a new Email row from a freshly-fetched, not-yet-persisted
-    EmailMessage. Caller is responsible for having already checked
+    """Insert a new Email row from an already-normalized EmailMessage.
+    Caller is responsible for having already checked
     get_by_provider_message_id to avoid duplicates.
     """
     row = Email(
         email_account_id=email_account_id,
         provider_message_id=parsed.message_id,
-        sender=parsed.sender,
-        recipients=parsed.recipients,
+        sender_name=parsed.sender_name,
+        sender_email=parsed.sender_email,
+        recipients=", ".join(parsed.recipients) or None,
+        in_reply_to=parsed.in_reply_to,
+        references_header=parsed.references_header,
         subject=parsed.subject,
         body=parsed.body,
-        received_at=_parse_received_at(parsed.date),
+        received_at=parsed.received_at,
         urgency=parsed.category.value,
     )
     db.add(row)

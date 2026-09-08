@@ -1,9 +1,11 @@
+from unittest.mock import MagicMock, patch
+
 from fastapi.testclient import TestClient
 
 from app.config import Settings, get_settings
 from app.db.session import get_db
+from app.integrations.base import FetchResult, RawEmail
 from app.main import create_app
-from app.schemas.email import EmailMessage, UrgencyLevel
 
 
 def make_client(settings: Settings, db_session=None) -> TestClient:
@@ -12,6 +14,19 @@ def make_client(settings: Settings, db_session=None) -> TestClient:
     if db_session is not None:
         app.dependency_overrides[get_db] = lambda: (yield db_session)
     return TestClient(app)
+
+
+def raw_message(message_id="<api-test@example.com>", subject="Test"):
+    return (
+        f"From: a@b.com\nTo: a@b.com\nSubject: {subject}\nMessage-ID: {message_id}\n"
+        f"Date: Mon, 1 Sep 2026 00:00:00 +0000\nContent-Type: text/plain\n\nHello"
+    ).encode()
+
+
+def patch_provider(fetch_result: FetchResult):
+    mock_provider = MagicMock()
+    mock_provider.fetch_new_messages.return_value = fetch_result
+    return patch("app.services.email_sync_service.IMAPProvider", return_value=mock_provider)
 
 
 def test_root():
@@ -39,61 +54,45 @@ def test_list_emails_returns_503_when_unconfigured(db_session):
     assert response.status_code == 503
 
 
-def test_list_emails_returns_502_on_fetch_error(monkeypatch, db_session):
+def test_list_emails_returns_502_on_fetch_error(db_session):
+    from app.integrations.base import EmailFetchError
+
     client = make_client(Settings(email_address="a@b.com", email_app_password="x"), db_session)
+    mock_provider = MagicMock()
+    mock_provider.fetch_new_messages.side_effect = EmailFetchError("IMAP login failed")
 
-    def raise_error(settings):
-        from app.services.email_service import EmailFetchError
+    with patch("app.services.email_sync_service.IMAPProvider", return_value=mock_provider):
+        response = client.get("/emails/")
 
-        raise EmailFetchError("IMAP login failed")
-
-    monkeypatch.setattr("app.services.email_sync_service.fetch_emails", raise_error)
-    response = client.get("/emails/")
     assert response.status_code == 502
     assert "IMAP login failed" in response.json()["detail"]
 
 
-def test_list_emails_persists_and_returns_stored_emails(monkeypatch, db_session):
+def test_list_emails_persists_and_returns_stored_emails(db_session):
     client = make_client(Settings(email_address="a@b.com", email_app_password="x"), db_session)
+    result = FetchResult(messages=[RawEmail("1", raw_message("<api-test-1@example.com>"))], new_cursor="1000:1")
 
-    fake_email = EmailMessage(
-        message_id="<api-test-1@example.com>",
-        subject="Test",
-        sender="a@b.com",
-        recipients="a@b.com",
-        date="Mon, 1 Sep 2026 00:00:00 +0000",
-        body="Hello",
-        category=UrgencyLevel.low,
-        deadlines=[],
-    )
-    monkeypatch.setattr("app.services.email_sync_service.fetch_emails", lambda settings: [fake_email])
+    with patch_provider(result):
+        response = client.get("/emails/")
 
-    response = client.get("/emails/")
     assert response.status_code == 200
     body = response.json()
     assert len(body) == 1
     assert body[0]["subject"] == "Test"
     assert body[0]["urgency"] == "Low"
+    assert body[0]["sender_email"] == "a@b.com"
     assert "id" in body[0]  # confirms this is the persisted DB row, not the raw IMAP shape
 
 
-def test_list_emails_does_not_duplicate_across_requests(monkeypatch, db_session):
+def test_list_emails_does_not_duplicate_across_requests(db_session):
     client = make_client(Settings(email_address="a@b.com", email_app_password="x"), db_session)
+    result = FetchResult(messages=[RawEmail("1", raw_message("<api-test-2@example.com>"))], new_cursor="1000:1")
+    empty_result = FetchResult(messages=[], new_cursor=None)
 
-    fake_email = EmailMessage(
-        message_id="<api-test-2@example.com>",
-        subject="Test",
-        sender="a@b.com",
-        recipients="a@b.com",
-        date="Mon, 1 Sep 2026 00:00:00 +0000",
-        body="Hello",
-        category=UrgencyLevel.low,
-        deadlines=[],
-    )
-    monkeypatch.setattr("app.services.email_sync_service.fetch_emails", lambda settings: [fake_email])
-
-    first = client.get("/emails/")
-    second = client.get("/emails/")
+    with patch_provider(result):
+        first = client.get("/emails/")
+    with patch_provider(empty_result):
+        second = client.get("/emails/")
 
     assert len(first.json()) == 1
     assert len(second.json()) == 1
