@@ -43,6 +43,7 @@ class EmailOut(BaseModel):
     model_config = {"from_attributes": True}
 
     id: int
+    thread_id: int | None
     provider_message_id: str
     sender_name: str | None
     sender_email: str | None
@@ -57,3 +58,14 @@ class EmailOut(BaseModel):
     category: str | None
     organization: str | None
     processing_status: str
+
+
+class EmailThreadOut(BaseModel):
+    """API-facing shape of an EmailThread with its member emails."""
+
+    model_config = {"from_attributes": True}
+
+    id: int
+    subject: str | None
+    provider_thread_id: str | None
+    emails: list[EmailOut]

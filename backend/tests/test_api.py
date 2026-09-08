@@ -16,9 +16,10 @@ def make_client(settings: Settings, db_session=None) -> TestClient:
     return TestClient(app)
 
 
-def raw_message(message_id="<api-test@example.com>", subject="Test"):
+def raw_message(message_id="<api-test@example.com>", subject="Test", in_reply_to=None):
+    reply_line = f"In-Reply-To: {in_reply_to}\n" if in_reply_to else ""
     return (
-        f"From: a@b.com\nTo: a@b.com\nSubject: {subject}\nMessage-ID: {message_id}\n"
+        f"From: a@b.com\nTo: a@b.com\nSubject: {subject}\nMessage-ID: {message_id}\n{reply_line}"
         f"Date: Mon, 1 Sep 2026 00:00:00 +0000\nContent-Type: text/plain\n\nHello"
     ).encode()
 
@@ -82,6 +83,7 @@ def test_list_emails_persists_and_returns_stored_emails(db_session):
     assert body[0]["urgency"] == "Low"
     assert body[0]["sender_email"] == "a@b.com"
     assert "id" in body[0]  # confirms this is the persisted DB row, not the raw IMAP shape
+    assert body[0]["thread_id"] is not None
 
 
 def test_list_emails_does_not_duplicate_across_requests(db_session):
@@ -97,3 +99,34 @@ def test_list_emails_does_not_duplicate_across_requests(db_session):
     assert len(first.json()) == 1
     assert len(second.json()) == 1
     assert first.json()[0]["id"] == second.json()[0]["id"]
+
+
+def test_get_thread_returns_404_when_not_found(db_session):
+    client = make_client(Settings(), db_session)
+    response = client.get("/threads/999")
+    assert response.status_code == 404
+
+
+def test_get_thread_returns_thread_with_its_emails(db_session):
+    client = make_client(Settings(email_address="a@b.com", email_app_password="x"), db_session)
+    result = FetchResult(
+        messages=[
+            RawEmail("1", raw_message("<thread-root@example.com>")),
+            RawEmail("2", raw_message("<thread-reply@example.com>", in_reply_to="<thread-root@example.com>")),
+        ],
+        new_cursor="1000:2",
+    )
+    with patch_provider(result):
+        emails_response = client.get("/emails/")
+
+    thread_id = emails_response.json()[0]["thread_id"]
+    response = client.get(f"/threads/{thread_id}")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["id"] == thread_id
+    assert len(body["emails"]) == 2
+    assert {e["provider_message_id"] for e in body["emails"]} == {
+        "<thread-root@example.com>",
+        "<thread-reply@example.com>",
+    }

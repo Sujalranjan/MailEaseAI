@@ -10,11 +10,18 @@ from app.models.mixins import TimestampMixin
 class EmailThread(Base, TimestampMixin):
     """A conversation grouping of related emails.
 
-    Not yet populated by the ingestion pipeline — real threading
-    (Message-ID / In-Reply-To / References, or provider thread IDs)
-    is a dedicated later phase. The table and the Email.thread_id FK
-    exist now so that phase only has to add population logic, not a
-    schema migration.
+    Populated by services/email_threading_service.py using the
+    Message-ID / In-Reply-To / References headers — never subject text,
+    which is unreliable for grouping (two unrelated conversations can
+    share a subject) and is only stored here for display purposes.
+
+    `provider_thread_id` stays NULL for now: IMAP doesn't expose a
+    generic native thread ID (Gmail's X-GM-THRID needs a Gmail-specific
+    IMAP extension, which would break the provider abstraction), and a
+    future Gmail API provider — which does have a real threadId — would
+    populate this column directly instead of relying on header
+    inference at all, since a native ID is stronger evidence than
+    reconstructing it from headers.
     """
 
     __tablename__ = "email_threads"
@@ -25,7 +32,7 @@ class EmailThread(Base, TimestampMixin):
     subject: Mapped[str | None] = mapped_column(String(998), nullable=True)
 
     email_account: Mapped["EmailAccount"] = relationship(back_populates="threads")
-    emails: Mapped[list["Email"]] = relationship(back_populates="thread")
+    emails: Mapped[list["Email"]] = relationship(back_populates="thread", order_by="Email.received_at")
 
 
 class Email(Base, TimestampMixin):
@@ -44,8 +51,8 @@ class Email(Base, TimestampMixin):
     `sender_name`/`sender_email` and `recipients` are normalized (parsed
     address components, not raw "Name <addr>" header text) — see
     services/email_normalizer.py. `in_reply_to`/`references_header`
-    capture the standard MIME threading headers as raw values; grouping
-    them into EmailThread rows is not implemented yet (a later phase).
+    capture the standard MIME threading headers as raw values, and are
+    used by services/email_threading_service.py to assign `thread_id`.
 
     `received_at` is always stored normalized to UTC. SQLite (unlike
     Postgres) silently drops timezone info on any datetime it stores —
@@ -69,7 +76,7 @@ class Email(Base, TimestampMixin):
     sender_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     sender_email: Mapped[str | None] = mapped_column(String(320), index=True, nullable=True)
     recipients: Mapped[str | None] = mapped_column(String(998), nullable=True)
-    in_reply_to: Mapped[str | None] = mapped_column(String(998), nullable=True)
+    in_reply_to: Mapped[str | None] = mapped_column(String(998), index=True, nullable=True)
     references_header: Mapped[str | None] = mapped_column(String(998), nullable=True)
     subject: Mapped[str] = mapped_column(String(998), default="")
     body: Mapped[str] = mapped_column(Text, default="")

@@ -2,6 +2,7 @@ from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.emails import router as emails_router
+from app.api.threads import router as threads_router
 from app.config import Settings, get_settings
 
 
@@ -18,6 +19,7 @@ def create_app() -> FastAPI:
     )
 
     app.include_router(emails_router)
+    app.include_router(threads_router)
 
     @app.get("/")
     def root(settings: Settings = Depends(get_settings)) -> dict[str, str]:

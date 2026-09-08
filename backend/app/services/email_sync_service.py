@@ -1,10 +1,11 @@
-"""Orchestrates: provider fetch -> normalize -> dedupe -> persist -> read back.
+"""Orchestrates: provider fetch -> normalize -> dedupe -> persist -> thread -> read back.
 
 Keeps app/integrations/* (provider connectivity), app/services/
-email_normalizer.py (raw bytes -> structured data), and app/repositories/*
-(persistence) each responsible for one concern, per the requirement not
-to put database or provider logic directly in the other layers or in
-API routes.
+email_normalizer.py (raw bytes -> structured data), app/services/
+email_threading_service.py (conversation grouping), and
+app/repositories/* (persistence) each responsible for one concern, per
+the requirement not to put database or provider logic directly in the
+other layers or in API routes.
 """
 
 import logging
@@ -17,6 +18,7 @@ from app.models import Email
 from app.repositories.account_repository import get_or_create_default_account
 from app.repositories.email_repository import create, get_by_provider_message_id, list_by_account
 from app.services.email_normalizer import normalize_message
+from app.services.email_threading_service import assign_thread
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +34,13 @@ def sync_emails(db: Session, settings: Settings) -> list[Email]:
     and account creation all land in one commit — a crash or exception
     partway through never leaves the cursor ahead of what was actually
     persisted.
+
+    Thread assignment (email_threading_service.assign_thread) runs once
+    per newly-inserted email, inside this same transaction, so it is
+    naturally idempotent too: an already-persisted email is never
+    re-processed on a later sync call, and its thread_id is only ever
+    revisited by an explicit evidence-based merge triggered by a later
+    email in the same conversation.
     """
     account = get_or_create_default_account(db, settings)
     provider = IMAPProvider(settings)
@@ -59,7 +68,8 @@ def sync_emails(db: Session, settings: Settings) -> list[Email]:
         if get_by_provider_message_id(db, account.id, parsed.message_id) is not None:
             continue
 
-        create(db, account.id, parsed)
+        row = create(db, account.id, parsed)
+        assign_thread(db, account.id, row)
         new_count += 1
 
     if result.new_cursor is not None:
